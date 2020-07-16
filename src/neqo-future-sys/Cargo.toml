@@ -1,0 +1,16 @@
+[package]
+name = "neqo-future-sys"
+version = "0.1.0"
+authors = ["Jun Ryoung Ju <junryoungju@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "neqo_future_sys"
+path = "lib.rs"
+crate-type = ["staticlib"]
+
+[dependencies]
+async-std = { version = "*", features = ["unstable"] }
+anyhow = "*"
+futures = "*"
+log = "*"

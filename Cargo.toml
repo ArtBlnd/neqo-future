@@ -1,0 +1,5 @@
+[workspace]
+members = [ 
+    "src/neqo-future",
+    "src/neqo-future-sys",
+]

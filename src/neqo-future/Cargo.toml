@@ -1,0 +1,22 @@
+[package]
+name = "neqo-future"
+version = "0.1.0"
+authors = ["Jun Ryoung Ju <junryoungju@gmail.com>"]
+edition = "2018"
+
+[lib]
+name = "neqo_future"
+path = "lib.rs"
+
+[dependencies]
+async-std = { version = "*", features = ["unstable"] }
+anyhow = "*"
+futures = "*"
+log = "*"
+
+[dependencies.neqo-crypto]
+path = "../../neqo/neqo-crypto"
+default-features = false
+
+neqo-common = { path = "../../neqo/neqo-common" }
+neqo-transport = {  path = "../../neqo-transport" }
