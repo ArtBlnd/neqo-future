@@ -59,7 +59,7 @@ pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize
     }
 
     let slice = std::slice::from_raw_parts_mut(buf, len);
-    slice.copy_from_slice(result.as_bytes());
+    slice[..result.len()].copy_from_slice(result.as_bytes());
 
     return 0;
 }
