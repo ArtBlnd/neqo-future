@@ -1,7 +1,7 @@
 use neqo_future::*;
 
-use async_std::task;
 use async_std::io;
+use async_std::task;
 
 use futures::prelude::*;
 
@@ -15,9 +15,8 @@ async fn read_and_print(mut rx: QuicRecvStream) {
 }
 
 fn main() {
-    SimpleLogger::init(LevelFilter::Warn, Config::default())
-        .expect("failed to init logger!");
-    
+    SimpleLogger::init(LevelFilter::Warn, Config::default()).expect("failed to init logger!");
+
     neqo_crypto::init_db("/Users/jujunryoung/Desktop/neqo-future/assets/");
 
     let alpns = ["neqo-future"].to_vec();
@@ -34,7 +33,7 @@ fn main() {
         recv_buf_len: 1440,
         send_buf_len: 1440,
 
-        version: Version::Draft29
+        version: Version::Draft29,
     };
 
     task::block_on(async {
@@ -42,16 +41,26 @@ fn main() {
 
         let stdin = io::stdin();
 
-        let (_, connection) = client::connect("127.0.0.1:8888".parse().unwrap(), config).await.expect("failed to connect");
+        let (_, connection) = client::connect("127.0.0.1:8888".parse().unwrap(), config)
+            .await
+            .expect("failed to connect");
         task::sleep(std::time::Duration::from_secs(3)).await;
 
-        let (mut tx, rx) = connection.create_stream_full().await.expect("failed to create stream");
+        let (mut tx, rx) = connection
+            .create_stream_full()
+            .await
+            .expect("failed to create stream");
 
         task::spawn(read_and_print(rx));
 
         loop {
-            stdin.read_line(&mut line).await.expect("failed to read line");
-            tx.write_all(line.as_bytes()).await.expect("failed to write buffer");
+            stdin
+                .read_line(&mut line)
+                .await
+                .expect("failed to read line");
+            tx.write_all(line.as_bytes())
+                .await
+                .expect("failed to write buffer");
             line.clear();
         }
     });

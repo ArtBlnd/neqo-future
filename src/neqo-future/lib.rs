@@ -1,28 +1,28 @@
-pub mod server;
 pub mod client;
+pub mod server;
 
-use std::net::SocketAddr;
-use std::sync::Arc;
-use std::time::{ Duration, Instant };
-use std::io::{ Error, ErrorKind };
+use std::any::Any;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::io::{Error, ErrorKind};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::cell::RefCell;
+use std::sync::Arc;
 use std::sync::Mutex;
-use std::fmt::Debug;
-use std::any::Any;
+use std::time::{Duration, Instant};
 
-use async_std::task::*;
-use async_std::net::UdpSocket;
-use async_std::sync::{ channel, Sender, Receiver, RecvError };
 use async_std::future;
+use async_std::net::UdpSocket;
 use async_std::sync::Mutex as AsyncMutex;
+use async_std::sync::{channel, Receiver, RecvError, Sender};
+use async_std::task::*;
 
-use neqo_transport;
 use neqo_common::Datagram;
+use neqo_transport;
 
-use futures::io::{ AsyncWrite, AsyncRead };
+use futures::io::{AsyncRead, AsyncWrite};
 
 pub type Version = neqo_transport::QuicVersion;
 
@@ -30,7 +30,7 @@ pub type Version = neqo_transport::QuicVersion;
 pub enum QuicError {
     NeqoError(neqo_transport::Error),
     IoError(std::io::Error),
-    FatalError(Box<dyn Any + Send>)
+    FatalError(Box<dyn Any + Send>),
 }
 
 impl From<std::io::Error> for QuicError {
@@ -51,10 +51,10 @@ impl From<Box<dyn Any + Send>> for QuicError {
     }
 }
 
-unsafe impl Send for Connection { }
-unsafe impl Sync for Connection { }
-unsafe impl Send for InternalConnection { }
-unsafe impl Sync for InternalConnection { }
+unsafe impl Send for Connection {}
+unsafe impl Sync for Connection {}
+unsafe impl Send for InternalConnection {}
+unsafe impl Sync for InternalConnection {}
 
 pub struct Connection {
     socket: Arc<UdpSocket>,
@@ -67,13 +67,13 @@ pub struct Connection {
 
     strm_tx: Sender<Option<u64>>,
     strm_rx: Receiver<Option<u64>>,
-    
+
     internal: Arc<Mutex<InternalConnection>>,
 }
 
 impl Clone for Connection {
     fn clone(&self) -> Self {
-        Connection { 
+        Connection {
             socket: self.socket.clone(),
             src_addr: self.src_addr.clone(),
             dst_addr: self.dst_addr.clone(),
@@ -81,7 +81,7 @@ impl Clone for Connection {
             strm_rx: self.strm_rx.clone(),
             data_tx: self.data_tx.clone(),
             data_rx: self.data_rx.clone(),
-            internal: self.internal.clone() 
+            internal: self.internal.clone(),
         }
     }
 }
@@ -103,21 +103,29 @@ impl Connection {
         self.data_tx.send(packet).await;
     }
 
-    pub async fn recv_packet(&self, timeout: Option<Duration>) -> Result<Option<Vec<u8>>, RecvError> {
+    pub async fn recv_packet(
+        &self,
+        timeout: Option<Duration>,
+    ) -> Result<Option<Vec<u8>>, RecvError> {
         if let Some(timeout) = timeout {
             if let Ok(result) = future::timeout(timeout, self.data_rx.recv()).await {
                 return result;
             }
 
             return Ok(None);
-        }
-        else {
+        } else {
             return self.data_rx.recv().await;
         }
     }
-    
+
     pub async fn create_stream_half(&self) -> Option<QuicSendStream> {
-        if let Ok(stream_id) = self.internal.lock().unwrap().quic.stream_create(neqo_transport::StreamType::UniDi) {
+        if let Ok(stream_id) = self
+            .internal
+            .lock()
+            .unwrap()
+            .quic
+            .stream_create(neqo_transport::StreamType::UniDi)
+        {
             return Some(self.generate_stream(stream_id).0);
         }
 
@@ -125,7 +133,13 @@ impl Connection {
     }
 
     pub async fn create_stream_full(&self) -> Option<(QuicSendStream, QuicRecvStream)> {
-        if let Ok(stream_id) = self.internal.lock().unwrap().quic.stream_create(neqo_transport::StreamType::BiDi) {
+        if let Ok(stream_id) = self
+            .internal
+            .lock()
+            .unwrap()
+            .quic
+            .stream_create(neqo_transport::StreamType::BiDi)
+        {
             return Some(self.generate_stream(stream_id));
         }
 
@@ -149,7 +163,9 @@ impl Connection {
         let mut internal = self.internal.lock().unwrap();
 
         assert!(internal.quic.role() != neqo_common::Role::Server);
-        internal.quic.authenticated(neqo_crypto::AuthenticationStatus::Ok, Instant::now());
+        internal
+            .quic
+            .authenticated(neqo_crypto::AuthenticationStatus::Ok, Instant::now());
     }
 
     fn generate_stream(&self, stream_id: u64) -> (QuicSendStream, QuicRecvStream) {
@@ -158,13 +174,13 @@ impl Connection {
 
             stream_id,
             conn: self.clone(),
-            error_code: Default::default()
+            error_code: Default::default(),
         };
 
         let recv_strm = QuicRecvStream {
             stream_id,
             conn: self.clone(),
-            error_code: Default::default()
+            error_code: Default::default(),
         };
 
         return (send_strm, recv_strm);
@@ -176,12 +192,15 @@ impl Connection {
         {
             let mut internal = self.internal.lock().unwrap();
             if let Some(packet) = packet {
-                internal.quic.process_input(Datagram::new(self.dst_addr, self.src_addr, packet), Instant::now());
+                internal.quic.process_input(
+                    Datagram::new(self.dst_addr, self.src_addr, packet),
+                    Instant::now(),
+                );
             }
 
             loop {
                 match internal.quic.process_output(Instant::now()) {
-                    neqo_transport::Output::None               => {
+                    neqo_transport::Output::None => {
                         timeout = None;
                         break;
                     }
@@ -199,7 +218,9 @@ impl Connection {
         }
 
         for packet in outputs {
-            self.socket.send_to(&packet, packet.destination()).await
+            self.socket
+                .send_to(&packet, packet.destination())
+                .await
                 .expect("failed to send packet to socket!");
         }
 
@@ -236,11 +257,16 @@ impl Connection {
             waker.wake();
         }
     }
-    
-    fn stream_send_op(&self, stream_id: u64, waker: Waker, buffer: &[u8]) -> Result<usize, std::io::Error> {
+
+    fn stream_send_op(
+        &self,
+        stream_id: u64,
+        waker: Waker,
+        buffer: &[u8],
+    ) -> Result<usize, std::io::Error> {
         let mut internal = self.internal.lock().unwrap();
         match internal.quic.stream_send(stream_id, buffer) {
-            Ok (len) => {
+            Ok(len) => {
                 if len == 0 {
                     internal.send_op_wakers.insert(stream_id, waker);
                     return Err(Error::new(ErrorKind::WouldBlock, "operation would block"));
@@ -250,7 +276,9 @@ impl Connection {
                 return Ok(len);
             }
             Err(e) => {
-                if let neqo_transport::Error::InvalidStreamId | neqo_transport::Error::FinalSizeError = e {
+                if let neqo_transport::Error::InvalidStreamId
+                | neqo_transport::Error::FinalSizeError = e
+                {
                     return Err(Error::new(ErrorKind::BrokenPipe, "bad stream id!"));
                 }
             }
@@ -259,10 +287,15 @@ impl Connection {
         unreachable!();
     }
 
-    fn stream_recv_op(&self, stream_id: u64, waker: Waker, buffer: &mut [u8]) -> Result<usize, std::io::Error> {
+    fn stream_recv_op(
+        &self,
+        stream_id: u64,
+        waker: Waker,
+        buffer: &mut [u8],
+    ) -> Result<usize, std::io::Error> {
         let mut internal = self.internal.lock().unwrap();
         match internal.quic.stream_recv(stream_id, buffer) {
-            Ok ((len, _)) => {
+            Ok((len, _)) => {
                 if len == 0 {
                     internal.recv_op_wakers.insert(stream_id, waker);
                     return Err(Error::new(ErrorKind::WouldBlock, "operation would block"));
@@ -272,8 +305,13 @@ impl Connection {
                 return Ok(len);
             }
             Err(e) => {
-                if let neqo_transport::Error::InvalidStreamId | neqo_transport::Error::NoMoreData = e {
-                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "bad stream id!"));
+                if let neqo_transport::Error::InvalidStreamId | neqo_transport::Error::NoMoreData =
+                    e
+                {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "bad stream id!",
+                    ));
                 }
             }
         }
@@ -283,7 +321,9 @@ impl Connection {
 
     fn stream_close(&self, stream_id: u64, waker: Waker) {
         let mut internal = self.internal.lock().unwrap();
-        if let Err(neqo_transport::Error::InvalidStreamId) = internal.quic.stream_close_send(stream_id) {
+        if let Err(neqo_transport::Error::InvalidStreamId) =
+            internal.quic.stream_close_send(stream_id)
+        {
             waker.wake_by_ref();
         }
     }
@@ -307,14 +347,14 @@ pub struct QuicSendStream {
     stream_id: u64,
     conn: Connection,
 
-    error_code: Arc<Mutex<Option<u64>>>
+    error_code: Arc<Mutex<Option<u64>>>,
 }
 
 pub struct QuicRecvStream {
     stream_id: u64,
     conn: Connection,
 
-    error_code: Arc<Mutex<Option<u64>>>
+    error_code: Arc<Mutex<Option<u64>>>,
 }
 
 impl QuicSendStream {
@@ -328,8 +368,15 @@ impl QuicSendStream {
 }
 
 impl AsyncWrite for QuicSendStream {
-    fn poll_write(self: Pin<&mut Self>, ctx: &mut Context<'_>, buf: &[u8]) -> Poll<Result<usize, Error>> {
-        let result = match self.conn.stream_send_op(self.stream_id, ctx.waker().clone(), buf) {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, Error>> {
+        let result = match self
+            .conn
+            .stream_send_op(self.stream_id, ctx.waker().clone(), buf)
+        {
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 return Poll::Pending;
             }
@@ -343,7 +390,7 @@ impl AsyncWrite for QuicSendStream {
     fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<Result<(), Error>> {
         unimplemented!("quic does not implements flush!");
     }
-    
+
     fn poll_close(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Result<(), Error>> {
         if self.send_closed {
             return Poll::Ready(Ok(()));
@@ -374,8 +421,15 @@ impl QuicRecvStream {
 }
 
 impl AsyncRead for QuicRecvStream {
-    fn poll_read(self: Pin<&mut Self>, ctx: &mut Context<'_>, buf: &mut [u8]) -> Poll<Result<usize, Error>> {
-        let result = match self.conn.stream_recv_op(self.stream_id, ctx.waker().clone(), buf) {
+    fn poll_read(
+        self: Pin<&mut Self>,
+        ctx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<Result<usize, Error>> {
+        let result = match self
+            .conn
+            .stream_recv_op(self.stream_id, ctx.waker().clone(), buf)
+        {
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 return Poll::Pending;
             }
@@ -393,7 +447,10 @@ impl QuicRecvStream {
     }
 }
 
-async fn dispatch_event(connection: &Connection, event: neqo_transport::ConnectionEvent) -> Result<(), Option<u64>> {
+async fn dispatch_event(
+    connection: &Connection,
+    event: neqo_transport::ConnectionEvent,
+) -> Result<(), Option<u64>> {
     match event {
         neqo_transport::ConnectionEvent::AuthenticationNeeded => {
             connection.auth_ok();
@@ -407,7 +464,7 @@ async fn dispatch_event(connection: &Connection, event: neqo_transport::Connecti
             log::info!("neqo-future | new stream (stream_id = {})", stream_id);
         }
 
-        // If we have registered waker on table. 
+        // If we have registered waker on table.
         neqo_transport::ConnectionEvent::SendStreamWritable { stream_id } => {
             let stream_id = stream_id.as_u64();
 
@@ -424,7 +481,7 @@ async fn dispatch_event(connection: &Connection, event: neqo_transport::Connecti
             connection.wake_send_stream(stream_id).await;
             log::info!("neqo-future | stream complate (stream_id = {})", stream_id);
         }
-    
+
         // Peer has requested closed.
         neqo_transport::ConnectionEvent::RecvStreamReset { stream_id, .. } => {
             // We have to notify this is closed.
@@ -439,7 +496,7 @@ async fn dispatch_event(connection: &Connection, event: neqo_transport::Connecti
 
         neqo_transport::ConnectionEvent::StateChange(state) => {
             log::info!("neqo-future | state changed => {:?}", state);
-            if let neqo_transport::State::Closing{..} = &state {
+            if let neqo_transport::State::Closing { .. } = &state {
                 // Seems peer has been closed.
                 // so we are in closing state do not create more streams.
                 connection.strm_tx.send(None).await;
@@ -452,7 +509,7 @@ async fn dispatch_event(connection: &Connection, event: neqo_transport::Connecti
             connection.process(None).await;
         }
 
-        _ => { }
+        _ => {}
     }
 
     return Ok(());
@@ -471,7 +528,7 @@ async fn dispatch_conn(connection: Connection) -> Option<u64> {
                 break 'main;
             }
         }
-    };
+    }
 
     // wake all stream wakers and cleans up.
     connection.internal_cleanup().await;

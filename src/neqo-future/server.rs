@@ -17,17 +17,25 @@ pub struct ServerConfig {
     // anti_replay_k: usize,
     // anti_replay_b: usize,
     // anti_replay_dur: Duration,
-
     pub version: Version,
 }
 
 impl Connection {
-    fn configure_server(config: &ServerConfig, src_addr: SocketAddr, dst_addr: SocketAddr, sock_conn: Arc<UdpSocket>) -> Result<Connection, QuicError> {
+    fn configure_server(
+        config: &ServerConfig,
+        src_addr: SocketAddr,
+        dst_addr: SocketAddr,
+        sock_conn: Arc<UdpSocket>,
+    ) -> Result<Connection, QuicError> {
         let quic_conn = neqo_transport::Connection::new_server(
-            &config.certs, 
-            &config.alpns, 
-            Rc::new(RefCell::new(neqo_transport::FixedConnectionIdManager::new(config.max_stream_range))), 
-            config.version).unwrap();
+            &config.certs,
+            &config.alpns,
+            Rc::new(RefCell::new(neqo_transport::FixedConnectionIdManager::new(
+                config.max_stream_range,
+            ))),
+            config.version,
+        )
+        .unwrap();
 
         let internal = Arc::new(Mutex::new(InternalConnection {
             quic: quic_conn,
@@ -38,8 +46,16 @@ impl Connection {
 
         let (strm_tx, strm_rx) = channel(1);
         let (data_tx, data_rx) = channel(1);
-        return Ok(Connection { 
-            socket: sock_conn.clone(), src_addr, dst_addr, strm_tx, strm_rx, data_tx, data_rx,  internal });
+        return Ok(Connection {
+            socket: sock_conn.clone(),
+            src_addr,
+            dst_addr,
+            strm_tx,
+            strm_rx,
+            data_tx,
+            data_rx,
+            internal,
+        });
     }
 
     // we don't support zero-rtt for now.
@@ -64,8 +80,15 @@ impl Listener {
     pub async fn new(bind_addr: SocketAddr, config: ServerConfig) -> Result<Listener, QuicError> {
         let (conn_tx, conn_rx) = channel(1);
 
-        let handle = spawn(dispatch_sock(config, Arc::new(UdpSocket::bind(bind_addr).await?), conn_tx));
-        Ok(Listener { conn_rx, dispatch_task: handle })
+        let handle = spawn(dispatch_sock(
+            config,
+            Arc::new(UdpSocket::bind(bind_addr).await?),
+            conn_tx,
+        ));
+        Ok(Listener {
+            conn_rx,
+            dispatch_task: handle,
+        })
     }
 
     pub async fn listen(&self) -> Option<(JoinHandle<Option<u64>>, Connection)> {
@@ -78,15 +101,23 @@ impl Listener {
 }
 
 // This function helps removing connection from table after dispatching task is terminated.
-// make sure target task is not canceled. 
-async fn wait_and_remove(handle: JoinHandle<Option<u64>>, conn_table: Arc<AsyncMutex<HashMap<SocketAddr, Connection>>>, addr: SocketAddr) -> Option<u64> {
+// make sure target task is not canceled.
+async fn wait_and_remove(
+    handle: JoinHandle<Option<u64>>,
+    conn_table: Arc<AsyncMutex<HashMap<SocketAddr, Connection>>>,
+    addr: SocketAddr,
+) -> Option<u64> {
     let result = handle.await;
     conn_table.lock().await.remove(&addr);
 
     return result;
 }
 
-async fn dispatch_sock(config: ServerConfig, sock_conn: Arc<UdpSocket>, conn_tx: Sender<(JoinHandle<Option<u64>>, Connection)>) {
+async fn dispatch_sock(
+    config: ServerConfig,
+    sock_conn: Arc<UdpSocket>,
+    conn_tx: Sender<(JoinHandle<Option<u64>>, Connection)>,
+) {
     // reserve receive buffer
     let mut buf = Vec::new();
     buf.resize(config.recv_buf_len, 0);
@@ -97,17 +128,30 @@ async fn dispatch_sock(config: ServerConfig, sock_conn: Arc<UdpSocket>, conn_tx:
         let mut table = conn_table.lock().await;
 
         if !table.contains_key(&addr) {
-            let conn = Connection::configure_server(&config, sock_conn.local_addr().unwrap(), addr, sock_conn.clone())
-                .expect("failed to create connection!");
+            let conn = Connection::configure_server(
+                &config,
+                sock_conn.local_addr().unwrap(),
+                addr,
+                sock_conn.clone(),
+            )
+            .expect("failed to create connection!");
 
             // we are using spawn_local before neqo supports Send trait for Connection objects
             // the task can be unbiased but still better than single threaded task.
-            let handle = spawn(wait_and_remove(spawn(dispatch_conn(conn.clone())), conn_table.clone(), addr));
+            let handle = spawn(wait_and_remove(
+                spawn(dispatch_conn(conn.clone())),
+                conn_table.clone(),
+                addr,
+            ));
 
             conn_tx.send((handle, conn.clone())).await;
             table.insert(addr, conn);
         }
 
-        table.get(&addr).unwrap().send_packet(Some(buf[..len].to_vec())).await;
+        table
+            .get(&addr)
+            .unwrap()
+            .send_packet(Some(buf[..len].to_vec()))
+            .await;
     }
 }

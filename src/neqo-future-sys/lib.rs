@@ -1,14 +1,14 @@
 use neqo_future::*;
 
-use std::panic::{ catch_unwind, AssertUnwindSafe };
-use std::ffi::CStr;
-use std::thread::LocalKey;
 use std::cell::RefCell;
+use std::ffi::CStr;
+use std::panic::{catch_unwind, AssertUnwindSafe};
+use std::thread::LocalKey;
 
-use async_std::task::JoinHandle;
 use async_std::task;
+use async_std::task::JoinHandle;
 
-use futures::{AsyncWriteExt, AsyncReadExt};
+use futures::{AsyncReadExt, AsyncWriteExt};
 
 type ConnectionInfo = (JoinHandle<Option<u64>>, Connection);
 
@@ -35,7 +35,7 @@ unsafe fn qf_last_error() -> &'static LocalKey<RefCell<Option<QuicError>>> {
 }
 
 unsafe fn qf_pop_error() {
-    qf_last_error().with(|e| { 
+    qf_last_error().with(|e| {
         let mut emut = e.borrow_mut();
         *emut = None;
     });
@@ -50,11 +50,25 @@ unsafe fn qf_set_error(error: QuicError) {
     });
 }
 
+pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize {
+    let mut result = String::new();
+    qf_last_error().with(|e| result = format!("error = {:?}", e));
+
+    if result.len() < len {
+        return result.len();
+    }
+
+    let slice = std::slice::from_raw_parts_mut(buf, len);
+    slice.copy_from_slice(result.as_bytes());
+
+    return 0;
+}
+
 // ------------------------------
 // CRYPTO HELPERS
 // ------------------------------
 #[no_mangle]
-pub unsafe extern fn qf_init(nss_dir: *const i8) -> i64 {
+pub unsafe extern "C" fn qf_init(nss_dir: *const i8) -> bool {
     qf_pop_error();
 
     return match catch_unwind(|| {
@@ -65,15 +79,23 @@ pub unsafe extern fn qf_init(nss_dir: *const i8) -> i64 {
         }
 
         neqo_crypto::init_db(to_string(nss_dir));
-    }) { Ok (_) => 0, Err(e) => { qf_set_error(QuicError::FatalError(e)); return -1; } };
+    }) {
+        Ok(_) => true,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return false;
+        }
+    };
 }
-
 
 // ------------------------------
 // QUIC WRAPPERS (NONE-ASYNC)
 // ------------------------------
 #[no_mangle]
-pub unsafe extern fn qf_connect(conn_addr: *const i8, config: Box<client::ClientConfig>) -> Option<Box<ConnectionInfo>> {
+pub unsafe extern "C" fn qf_connect(
+    conn_addr: *const i8,
+    config: Box<client::ClientConfig>,
+) -> Option<Box<ConnectionInfo>> {
     qf_pop_error();
 
     return match catch_unwind(|| {
@@ -88,11 +110,17 @@ pub unsafe extern fn qf_connect(conn_addr: *const i8, config: Box<client::Client
 
             return Some(Box::new(result.unwrap()));
         })
-    }) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return None } };
+    }) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return None;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_listen(info: &mut ConnectionInfo) -> Option<Box<StreamInfo>> {
+pub unsafe extern "C" fn qf_stream_listen(info: &mut ConnectionInfo) -> Option<Box<StreamInfo>> {
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
@@ -101,11 +129,19 @@ pub unsafe extern fn qf_stream_listen(info: &mut ConnectionInfo) -> Option<Box<S
         }
 
         return None;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return None } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return None;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_create_half(info: &mut ConnectionInfo) -> Option<Box<StreamInfo>> {
+pub unsafe extern "C" fn qf_stream_create_half(
+    info: &mut ConnectionInfo,
+) -> Option<Box<StreamInfo>> {
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
@@ -114,11 +150,19 @@ pub unsafe extern fn qf_stream_create_half(info: &mut ConnectionInfo) -> Option<
         }
 
         return None;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return None } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return None;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_create_full(info: &mut ConnectionInfo) -> Option<Box<StreamInfo>>  {
+pub unsafe extern "C" fn qf_stream_create_full(
+    info: &mut ConnectionInfo,
+) -> Option<Box<StreamInfo>> {
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
@@ -127,11 +171,17 @@ pub unsafe extern fn qf_stream_create_full(info: &mut ConnectionInfo) -> Option<
         }
 
         return None;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return None } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return None;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_send(info: &mut StreamInfo, buf: *mut u8, len: i64) -> i64 {
+pub unsafe extern "C" fn qf_stream_send(info: &mut StreamInfo, buf: *mut u8, len: i64) -> i64 {
     qf_pop_error();
 
     let buffer = std::slice::from_raw_parts(buf, len as usize);
@@ -150,11 +200,21 @@ pub unsafe extern fn qf_stream_send(info: &mut StreamInfo, buf: *mut u8, len: i6
         }
 
         return result.unwrap() as i64;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return -1 } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return -1;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_send_exact(info: &mut StreamInfo, buf: *mut u8, len: i64) -> bool {
+pub unsafe extern "C" fn qf_stream_send_exact(
+    info: &mut StreamInfo,
+    buf: *mut u8,
+    len: i64,
+) -> bool {
     qf_pop_error();
 
     let buffer = std::slice::from_raw_parts(buf, len as usize);
@@ -173,11 +233,17 @@ pub unsafe extern fn qf_stream_send_exact(info: &mut StreamInfo, buf: *mut u8, l
         }
 
         return true;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return false } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return false;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_recv(info: &mut StreamInfo, buf: *mut u8, len: i64) -> i64 {
+pub unsafe extern "C" fn qf_stream_recv(info: &mut StreamInfo, buf: *mut u8, len: i64) -> i64 {
     qf_pop_error();
 
     let buffer = std::slice::from_raw_parts_mut(buf, len as usize);
@@ -196,11 +262,21 @@ pub unsafe extern fn qf_stream_recv(info: &mut StreamInfo, buf: *mut u8, len: i6
         }
 
         return result.unwrap() as i64;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return -1 } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return -1;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_recv_exact(info: &mut StreamInfo, buf: *mut u8, len: i64) -> bool {
+pub unsafe extern "C" fn qf_stream_recv_exact(
+    info: &mut StreamInfo,
+    buf: *mut u8,
+    len: i64,
+) -> bool {
     qf_pop_error();
 
     let buffer = std::slice::from_raw_parts_mut(buf, len as usize);
@@ -219,11 +295,17 @@ pub unsafe extern fn qf_stream_recv_exact(info: &mut StreamInfo, buf: *mut u8, l
         }
 
         return true;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return false } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return false;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_close(info: &mut StreamInfo) -> bool {
+pub unsafe extern "C" fn qf_stream_close(info: &mut StreamInfo) -> bool {
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
@@ -241,11 +323,17 @@ pub unsafe extern fn qf_stream_close(info: &mut StreamInfo) -> bool {
         }
 
         return true;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return false } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return false;
+        }
+    };
 }
 
 #[no_mangle]
-pub unsafe extern fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> bool {
+pub unsafe extern "C" fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> bool {
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
@@ -253,10 +341,16 @@ pub unsafe extern fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> bool {
             match info {
                 StreamInfo::FullStream(tx, _) => tx.reset(err),
                 StreamInfo::HalfStreamRecv(tx) => tx.reset(err),
-                StreamInfo::HalfStreamSend(rx) => rx.reset(err)
+                StreamInfo::HalfStreamSend(rx) => rx.reset(err),
             }
         });
 
         return true;
-    })) { Ok(v) => v, Err(e) => { qf_set_error(QuicError::FatalError(e)); return false } };
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return false;
+        }
+    };
 }
