@@ -1,5 +1,7 @@
 [workspace]
 members = [ 
+    "src/example-chat-client",
+    "src/example-chat-server",
     "src/neqo-future",
     "src/neqo-future-sys",
 ]

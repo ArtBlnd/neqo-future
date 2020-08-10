@@ -1,23 +1,19 @@
 [package]
-name = "neqo-future-sys"
+name = "example-chat-server"
 version = "0.1.0"
 authors = ["Jun Ryoung Ju <junryoungju@gmail.com>"]
 edition = "2018"
 
-[lib]
-name = "neqo_future_sys"
-path = "lib.rs"
-crate-type = ["staticlib"]
+[[bin]]
+name = "example_chat_server"
+path = "bin.rs"
 
 [dependencies]
 async-std = { version = "*", features = ["unstable"] }
 anyhow = "*"
 futures = "*"
 log = "*"
-simplelog = "*"
 
 neqo-crypto = { tag = "v0.4.8", git = "https://github.com/mozilla/neqo" }
 neqo-future = { path = "./../neqo-future/" }
-
-[profile.release]
-panic = "abort"
+simplelog = "*"

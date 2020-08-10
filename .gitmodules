@@ -1,4 +1,0 @@
-[submodule "neqo"]
-	path = neqo
-	url = https://github.com/mozilla/neqo
-	branch = v0.4.8
