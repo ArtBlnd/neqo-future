@@ -10,12 +10,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "anyhow"
-version = "1.0.31"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "85bb70cc08ec97ca5450e6eba421deeea5f172c0fc61f78b5357b2a8e8be195f"
-
-[[package]]
 name = "async-std"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -192,7 +186,6 @@ dependencies = [
 name = "example-chat-client"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-std",
  "futures",
  "log",
@@ -205,7 +198,6 @@ dependencies = [
 name = "example-chat-server"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-std",
  "futures",
  "log",
@@ -449,7 +441,6 @@ dependencies = [
 name = "neqo-future"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-std",
  "futures",
  "log",
@@ -462,13 +453,10 @@ dependencies = [
 name = "neqo-future-sys"
 version = "0.1.0"
 dependencies = [
- "anyhow",
  "async-std",
  "futures",
- "log",
  "neqo-crypto",
  "neqo-future",
- "simplelog",
 ]
 
 [[package]]

@@ -11,7 +11,6 @@ path = "bin.rs"
 
 [dependencies]
 async-std = { version = "*", features = ["unstable"] }
-anyhow = "*"
 futures = "*"
 log = "*"
 
