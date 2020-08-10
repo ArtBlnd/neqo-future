@@ -9,6 +9,7 @@ use async_std::task;
 use async_std::task::JoinHandle;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
+use libc::c_char;
 
 type ConnectionInfo = (JoinHandle<Option<u64>>, Connection);
 
@@ -18,7 +19,7 @@ pub enum StreamInfo {
     HalfStreamRecv(QuicRecvStream),
 }
 
-pub unsafe fn to_string(p_str: *const i8) -> String {
+pub unsafe fn to_string(p_str: *const c_char) -> String {
     String::from_utf8_unchecked(CStr::from_ptr(p_str).to_bytes().to_vec())
 }
 
@@ -68,7 +69,7 @@ pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize
 // CRYPTO HELPERS
 // ------------------------------
 #[no_mangle]
-pub unsafe extern "C" fn qf_init(nss_dir: *const i8) -> bool {
+pub unsafe extern "C" fn qf_init(nss_dir: *const c_char) -> bool {
     qf_pop_error();
 
     return match catch_unwind(|| {
@@ -93,7 +94,7 @@ pub unsafe extern "C" fn qf_init(nss_dir: *const i8) -> bool {
 // ------------------------------
 #[no_mangle]
 pub unsafe extern "C" fn qf_connect(
-    conn_addr: *const i8,
+    conn_addr: *const c_char,
     config: Box<client::ClientConfig>,
 ) -> Option<Box<ConnectionInfo>> {
     qf_pop_error();
@@ -353,4 +354,18 @@ pub unsafe extern "C" fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> boo
             return false;
         }
     };
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn to_string_trivial() {
+        let c_str = b"hello\0";
+        unsafe {
+            let str = to_string(c_str.as_ptr() as *const c_char);
+            assert_eq!(str, "hello");
+        }
+    }
 }
