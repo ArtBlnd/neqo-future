@@ -12,6 +12,7 @@ crate-type = ["staticlib"]
 [dependencies]
 async-std = { version = "*", features = ["unstable"] }
 futures = "*"
+libc = "0.2"
 
 neqo-crypto = { tag = "v0.4.8", git = "https://github.com/mozilla/neqo" }
 neqo-future = { path = "./../neqo-future/" }
