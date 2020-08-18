@@ -95,6 +95,15 @@ impl Connection {
         self.dst_addr
     }
 
+    pub fn is_established(&self) -> bool {
+        let internal = self.internal.lock().unwrap();
+
+        if let neqo_transport::State::Connected = internal.quic.state() {
+            return true;
+        }
+        return false;
+    }
+
     pub fn try_send_packet(&self, packet: Option<Vec<u8>>) -> bool {
         self.data_tx.try_send(packet).is_ok()
     }

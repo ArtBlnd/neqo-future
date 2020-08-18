@@ -44,7 +44,13 @@ fn main() {
         let (_, connection) = client::connect("127.0.0.1:8888".parse().unwrap(), config)
             .await
             .expect("failed to connect");
-        task::sleep(std::time::Duration::from_secs(3)).await;
+
+        std::print!("waiting for handshake...");
+        // wait until established.
+        while !connection.is_established() {
+            task::yield_now().await;
+        }
+        std::println!("established!");
 
         let (mut tx, rx) = connection
             .create_stream_full()
