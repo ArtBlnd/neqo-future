@@ -15,6 +15,3 @@ futures = "*"
 
 neqo-crypto = { tag = "v0.4.8", git = "https://github.com/mozilla/neqo" }
 neqo-future = { path = "./../neqo-future/" }
-
-[profile.release]
-panic = "abort"
