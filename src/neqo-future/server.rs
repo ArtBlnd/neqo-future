@@ -128,13 +128,18 @@ async fn dispatch_sock(
         let mut table = conn_table.lock().await;
 
         if !table.contains_key(&addr) {
-            let conn = Connection::configure_server(
+            let conn = match Connection::configure_server(
                 &config,
                 sock_conn.local_addr().unwrap(),
                 addr,
                 sock_conn.clone(),
-            )
-            .expect("failed to create connection!");
+            ) {
+                Ok(v) => v,
+                Err(e) => {
+                    log::error!("neqo-future | failed to create connection object! {:?}", e);
+                    continue;
+                }
+            };
 
             // we are using spawn_local before neqo supports Send trait for Connection objects
             // the task can be unbiased but still better than single threaded task.
@@ -148,6 +153,7 @@ async fn dispatch_sock(
             table.insert(addr, conn);
         }
 
+        // transfer packet to tasks.
         table
             .get(&addr)
             .unwrap()
