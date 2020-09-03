@@ -23,7 +23,7 @@ extern 'C' {
     // ------------------------------
     // CONFIG HELPERS
     // ------------------------------
-    QFConfig qf_create_client_config(const char* bind_addr, const char* conn_addr);
+    QFConfig qf_create_client_config(const char* bind_addr);
     QFConfig qf_create_server_config(const char* bind_addr);
     void qf_free_client_config(QFConfig config);
     void qf_free_server_config(QFConfig config);
@@ -38,8 +38,11 @@ extern 'C' {
     // CONNECTION HELPERS
     // ------------------------------
     QFConnection qf_connect(QFConfig config);
+    void qf_disconnect(QFConnection);
 
-
+    // ------------------------------
+    // STREAM HELPERS
+    // ------------------------------
     QFStream qf_stream_listen(QFConnection connection);
     QFStream qf_stream_create_half(QFConnection connection);
     QFStream qf_stream_create_full(QFConnection connection);
@@ -51,8 +54,7 @@ extern 'C' {
 
     bool qf_stream_close(QFStream stream);
     bool qf_stream_reset(QFStream stream, uint64_t err);
-}
-
+};
 
 class QuicStream {
     friend class QuicClient;
@@ -85,14 +87,16 @@ public:
     bool reset(uint64_t err = 0) {
         return qf_stream_reset(err);
     }
-}
+};
 
 class QuicClient {
+    friend class QuicClientconfig;
     QFConnection connection;
 
+protected:
+    explicit QuicClient(QFConnection conn) : connection(conn) { }
+
 public:
-
-
     QuicStream stream_create_full() {
         return QuicStream(qf_stream_create_full(connection));
     }
@@ -100,8 +104,30 @@ public:
     QuicStream stream_create_half() {
         return QuicStream(qf_stream_create_half(connection));
     }
-}
+};
 
+class QuicClientConfig {
+    QFConfig config = 0;
+
+public:
+    QuicClientConfig(const char* bind_addr) : config(qf_create_client_config(bind_addr)) { }
+
+    void set_server_name(const char* sni) {
+        qf_set_server_name(config, sni);
+    }
+
+    void add_cert(const char* cert) {
+        qf_add_cert(config, cert);
+    }
+
+    void add_alpn(const char* alpn) {
+        qf_add_alpn(config, alpn);
+    }
+
+    QuicClient connect(const char* conn_addr) {
+        return QuicClient(qf_connect(config));
+    }
+};
 
 
 #endif
