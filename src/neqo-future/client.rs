@@ -55,29 +55,52 @@ impl Connection {
     }
 }
 
-async fn dispatch_sock(connection: Connection, config: ClientConfig, socket: Arc<UdpSocket>) {
+async fn dispatch_sock(conn: Connection, config: ClientConfig) {
     // reserve receive buffer
     let mut buf = Vec::new();
     buf.resize(config.recv_buf_len, 0);
 
-    log::info!("neqo-future | start receiving packets from socket!");
-
-    while let Ok(len) = socket.recv(&mut buf).await {
-        connection.data_tx.send(Some(buf[..len].to_vec())).await;
+    while let Ok(len) = conn.socket.recv(&mut buf).await {
+        conn.data_tx.send(Some(buf[..len].to_vec())).await;
     }
-
-    log::info!("neqo-future | stopped receiving packets from socket!");
 }
 
 pub async fn connect(
     conn_addr: SocketAddr,
     config: ClientConfig,
-) -> Result<(JoinHandle<Option<u64>>, Connection), QuicError> {
+) -> Result<(ConnectionHandle, Connection), QuicError> {
     let socket = Arc::new(UdpSocket::bind(config.bind_addr).await?);
-    let conn = Connection::configure_client(&config, config.bind_addr, conn_addr, socket.clone())?;
+    let quic_conn =
+        Connection::configure_client(&config, config.bind_addr, conn_addr, socket.clone())?;
 
     log::info!("neqo-future | connecting to {}", conn_addr);
 
-    spawn(dispatch_sock(conn.clone(), config, socket));
-    return Ok((spawn(dispatch_conn(conn.clone())), conn));
+    let sock_task = Some(spawn(dispatch_sock(quic_conn.clone(), config)));
+
+    // wait for established.
+    let mut timeout = quic_conn.process(None).await;
+    while let Ok(buf) = quic_conn.recv_packet(timeout).await {
+        timeout = quic_conn.process(buf).await;
+        for event in quic_conn.get_events() {
+            dispatch_event(&quic_conn, event).await.unwrap();
+        }
+
+        let state = quic_conn.state();
+        if state.closed() {
+            return Err(QuicError::NeqoError(
+                neqo_transport::Error::ConnectionRefused,
+            ));
+        } else if state.connected() {
+            break;
+        }
+    }
+
+    let quic_task = Some(spawn(dispatch_conn(quic_conn.clone())));
+    return Ok((
+        ConnectionHandle {
+            sock_task,
+            quic_task,
+        },
+        quic_conn,
+    ));
 }

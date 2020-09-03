@@ -66,7 +66,7 @@ impl Connection {
 }
 
 pub struct Listener {
-    conn_rx: Receiver<(JoinHandle<Option<u64>>, Connection)>,
+    conn_rx: Receiver<(ConnectionHandle, Connection)>,
     dispatch_task: JoinHandle<()>,
 }
 
@@ -91,7 +91,7 @@ impl Listener {
         })
     }
 
-    pub async fn listen(&self) -> Option<(JoinHandle<Option<u64>>, Connection)> {
+    pub async fn listen(&self) -> Option<(ConnectionHandle, Connection)> {
         if let Ok(v) = self.conn_rx.recv().await {
             return Some(v);
         }
@@ -116,7 +116,7 @@ async fn wait_and_remove(
 async fn dispatch_sock(
     config: ServerConfig,
     sock_conn: Arc<UdpSocket>,
-    conn_tx: Sender<(JoinHandle<Option<u64>>, Connection)>,
+    conn_tx: Sender<(ConnectionHandle, Connection)>,
 ) {
     // reserve receive buffer
     let mut buf = Vec::new();
@@ -143,13 +143,21 @@ async fn dispatch_sock(
 
             // we are using spawn_local before neqo supports Send trait for Connection objects
             // the task can be unbiased but still better than single threaded task.
-            let handle = spawn(wait_and_remove(
+            let quic_task = Some(spawn(wait_and_remove(
                 spawn(dispatch_conn(conn.clone())),
                 conn_table.clone(),
                 addr,
-            ));
+            )));
 
-            conn_tx.send((handle, conn.clone())).await;
+            conn_tx
+                .send((
+                    ConnectionHandle {
+                        sock_task: None,
+                        quic_task,
+                    },
+                    conn.clone(),
+                ))
+                .await;
             table.insert(addr, conn);
         }
 

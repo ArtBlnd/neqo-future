@@ -11,7 +11,7 @@ use async_std::task::JoinHandle;
 use futures::{AsyncReadExt, AsyncWriteExt};
 use libc::c_char;
 
-type ConnectionInfo = (JoinHandle<Option<u64>>, Connection);
+type ConnectionInfo = (ConnectionHandle, Connection);
 
 pub enum StreamInfo {
     FullStream(QuicSendStream, QuicRecvStream),
@@ -146,7 +146,7 @@ pub unsafe extern "C" fn qf_stream_create_half(
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
-        if let Some(v) = task::block_on(info.1.create_stream_half()) {
+        if let Some(v) = info.1.create_stream_half() {
             return Some(Box::new(StreamInfo::HalfStreamSend(v)));
         }
 
@@ -167,7 +167,7 @@ pub unsafe extern "C" fn qf_stream_create_full(
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
-        if let Some((tx, rx)) = task::block_on(info.1.create_stream_full()) {
+        if let Some((tx, rx)) = info.1.create_stream_full() {
             return Some(Box::new(StreamInfo::FullStream(tx, rx)));
         }
 
@@ -338,13 +338,11 @@ pub unsafe extern "C" fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> boo
     qf_pop_error();
 
     return match catch_unwind(AssertUnwindSafe(|| {
-        task::block_on(async {
-            match info {
-                StreamInfo::FullStream(tx, _) => tx.reset(err),
-                StreamInfo::HalfStreamRecv(tx) => tx.reset(err),
-                StreamInfo::HalfStreamSend(rx) => rx.reset(err),
-            }
-        });
+        match info {
+            StreamInfo::FullStream(tx, _) => tx.reset(err),
+            StreamInfo::HalfStreamRecv(tx) => tx.reset(err),
+            StreamInfo::HalfStreamSend(rx) => rx.reset(err),
+        }
 
         return true;
     })) {
@@ -352,6 +350,26 @@ pub unsafe extern "C" fn qf_stream_reset(info: &mut StreamInfo, err: u64) -> boo
         Err(e) => {
             qf_set_error(QuicError::FatalError(e));
             return false;
+        }
+    };
+}
+
+
+#[no_mangle]
+pub unsafe extern "C" fn qf_get_result(mut info: Option<Box<ConnectionInfo>>) -> u64 {
+    qf_pop_error();
+
+    return match catch_unwind(AssertUnwindSafe(|| {
+        if let Some(info) = info.take() {
+            return task::block_on(info.0.stop()).unwrap_or(0);
+        }
+
+        0
+    })) {
+        Ok(v) => v,
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return 0;
         }
     };
 }

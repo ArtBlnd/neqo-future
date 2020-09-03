@@ -41,20 +41,14 @@ fn main() {
 
         let stdin = io::stdin();
 
+        std::print!("wait to be connected...");
         let (_, connection) = client::connect("127.0.0.1:8888".parse().unwrap(), config)
             .await
             .expect("failed to connect");
-
-        std::print!("waiting for handshake...");
-        // wait until established.
-        while !connection.is_established() {
-            task::yield_now().await;
-        }
         std::println!("established!");
 
         let (mut tx, rx) = connection
             .create_stream_full()
-            .await
             .expect("failed to create stream");
 
         task::spawn(read_and_print(rx));

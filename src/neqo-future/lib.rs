@@ -25,6 +25,7 @@ use neqo_transport;
 use futures::io::{AsyncRead, AsyncWrite};
 
 pub type Version = neqo_transport::QuicVersion;
+pub type State = neqo_transport::State;
 
 #[derive(Debug)]
 pub enum QuicError {
@@ -48,6 +49,35 @@ impl From<neqo_transport::Error> for QuicError {
 impl From<Box<dyn Any + Send>> for QuicError {
     fn from(e: Box<dyn Any + Send>) -> Self {
         QuicError::FatalError(e)
+    }
+}
+
+pub struct ConnectionHandle {
+    sock_task: Option<JoinHandle<()>>,
+    quic_task: Option<JoinHandle<Option<u64>>>,
+}
+
+impl ConnectionHandle {
+    pub async fn stop(mut self) -> Option<u64> {
+        let mut result = None;
+        if let Some(task) = self.quic_task.take() {
+            result = task.await;
+        }
+        if let Some(task) = self.sock_task.take() {
+            task.cancel().await;
+        }
+
+        return result;
+    }
+
+    pub async fn force_stop(mut self) {
+        if let Some(task) = self.quic_task.take() {
+            task.cancel().await;
+        }
+
+        if let Some(task) = self.sock_task.take() {
+            task.cancel().await;
+        }
     }
 }
 
@@ -95,13 +125,9 @@ impl Connection {
         self.dst_addr
     }
 
-    pub fn is_established(&self) -> bool {
+    pub fn state(&self) -> State {
         let internal = self.internal.lock().unwrap();
-
-        if let neqo_transport::State::Connected = internal.quic.state() {
-            return true;
-        }
-        return false;
+        return internal.quic.state().clone();
     }
 
     pub fn try_send_packet(&self, packet: Option<Vec<u8>>) -> bool {
@@ -117,8 +143,8 @@ impl Connection {
         timeout: Option<Duration>,
     ) -> Result<Option<Vec<u8>>, RecvError> {
         if let Some(timeout) = timeout {
-            if let Ok(result) = future::timeout(timeout, self.data_rx.recv()).await {
-                return result;
+            if let Ok(packet) = future::timeout(timeout, self.data_rx.recv()).await {
+                return packet;
             }
 
             return Ok(None);
@@ -127,7 +153,7 @@ impl Connection {
         }
     }
 
-    pub async fn create_stream_half(&self) -> Option<QuicSendStream> {
+    pub fn create_stream_half(&self) -> Option<QuicSendStream> {
         if let Ok(stream_id) = self
             .internal
             .lock()
@@ -141,7 +167,7 @@ impl Connection {
         return None;
     }
 
-    pub async fn create_stream_full(&self) -> Option<(QuicSendStream, QuicRecvStream)> {
+    pub fn create_stream_full(&self) -> Option<(QuicSendStream, QuicRecvStream)> {
         if let Ok(stream_id) = self
             .internal
             .lock()
@@ -236,26 +262,26 @@ impl Connection {
         return timeout;
     }
 
-    async fn get_events(&self) -> impl Iterator<Item = neqo_transport::ConnectionEvent> {
+    fn get_events(&self) -> impl Iterator<Item = neqo_transport::ConnectionEvent> {
         let mut internal = self.internal.lock().unwrap();
         internal.quic.events()
     }
 
-    async fn wake_send_stream(&self, stream_id: u64) {
+    fn wake_send_stream(&self, stream_id: u64) {
         let mut internal = self.internal.lock().unwrap();
         if let Some(waker) = internal.send_op_wakers.remove(&stream_id) {
             waker.wake();
         }
     }
 
-    async fn wake_recv_stream(&self, stream_id: u64) {
+    fn wake_recv_stream(&self, stream_id: u64) {
         let mut internal = self.internal.lock().unwrap();
         if let Some(waker) = internal.recv_op_wakers.remove(&stream_id) {
             waker.wake();
         }
     }
 
-    async fn internal_cleanup(&self) {
+    fn internal_cleanup(&self) {
         let mut internal = self.internal.lock().unwrap();
 
         for (_, waker) in internal.send_op_wakers.drain() {
@@ -457,65 +483,70 @@ impl QuicRecvStream {
 }
 
 async fn dispatch_event(
-    connection: &Connection,
+    quic_conn: &Connection,
     event: neqo_transport::ConnectionEvent,
 ) -> Result<(), Option<u64>> {
+    // dispatches connection events.
     match event {
         neqo_transport::ConnectionEvent::AuthenticationNeeded => {
-            connection.auth_ok();
             log::info!("neqo-future | authentication requested");
+            quic_conn.auth_ok();
         }
 
         // Peer has created new stream.
         neqo_transport::ConnectionEvent::NewStream { stream_id } => {
-            let stream_id = stream_id.as_u64();
-            connection.strm_tx.send(Some(stream_id)).await;
             log::info!("neqo-future | new stream (stream_id = {})", stream_id);
+
+            let stream_id = stream_id.as_u64();
+            quic_conn.strm_tx.send(Some(stream_id)).await;
         }
 
         // If we have registered waker on table.
         neqo_transport::ConnectionEvent::SendStreamWritable { stream_id } => {
-            let stream_id = stream_id.as_u64();
-
-            connection.wake_send_stream(stream_id).await;
             log::info!("neqo-future | stream writable (stream_id = {})", stream_id);
+
+            let stream_id = stream_id.as_u64();
+            quic_conn.wake_send_stream(stream_id);
         }
         neqo_transport::ConnectionEvent::RecvStreamReadable { stream_id } => {
-            connection.wake_recv_stream(stream_id).await;
             log::info!("neqo-future | stream readable (stream_id = {})", stream_id);
+
+            quic_conn.wake_recv_stream(stream_id);
         }
 
         // We've closed stream and sent all data.
         neqo_transport::ConnectionEvent::SendStreamComplete { stream_id } => {
-            connection.wake_send_stream(stream_id).await;
             log::info!("neqo-future | stream complate (stream_id = {})", stream_id);
+
+            quic_conn.wake_send_stream(stream_id);
         }
 
         // Peer has requested closed.
         neqo_transport::ConnectionEvent::RecvStreamReset { stream_id, .. } => {
-            // We have to notify this is closed.
-            connection.wake_recv_stream(stream_id).await;
-            connection.wake_send_stream(stream_id).await;
             log::info!("neqo-future | stream resetted (stream_id = {})", stream_id);
+
+            // We have to notify this is closed.
+            quic_conn.wake_recv_stream(stream_id);
+            quic_conn.wake_send_stream(stream_id);
         }
         neqo_transport::ConnectionEvent::SendStreamStopSending { stream_id, .. } => {
-            connection.wake_send_stream(stream_id).await;
             log::info!("neqo-future | stream stop send (stream_id = {})", stream_id);
+
+            quic_conn.wake_send_stream(stream_id);
         }
 
         neqo_transport::ConnectionEvent::StateChange(state) => {
             log::info!("neqo-future | state changed => {:?}", state);
+
             if let neqo_transport::State::Closing { .. } = &state {
                 // Seems peer has been closed.
                 // so we are in closing state do not create more streams.
-                connection.strm_tx.send(None).await;
+                quic_conn.strm_tx.send(None).await;
             }
 
             if let neqo_transport::State::Closed(err) = &state {
                 return Err(err.app_code());
             }
-
-            connection.process(None).await;
         }
 
         _ => {}
@@ -524,15 +555,15 @@ async fn dispatch_event(
     return Ok(());
 }
 
-async fn dispatch_conn(connection: Connection) -> Option<u64> {
-    let mut timeout = connection.process(None).await;
+async fn dispatch_conn(quic_conn: Connection) -> Option<u64> {
+    let mut timeout = quic_conn.process(None).await;
 
     let mut result = None;
-    'main: while let Ok(buf) = connection.recv_packet(timeout).await {
-        timeout = connection.process(buf).await;
+    'main: while let Ok(buf) = quic_conn.recv_packet(timeout).await {
+        timeout = quic_conn.process(buf).await;
 
-        for event in connection.get_events().await {
-            if let Err(err_code) = dispatch_event(&connection, event).await {
+        for event in quic_conn.get_events() {
+            if let Err(err_code) = dispatch_event(&quic_conn, event).await {
                 result = err_code;
                 break 'main;
             }
@@ -540,6 +571,6 @@ async fn dispatch_conn(connection: Connection) -> Option<u64> {
     }
 
     // wake all stream wakers and cleans up.
-    connection.internal_cleanup().await;
+    quic_conn.internal_cleanup();
     return result;
 }
