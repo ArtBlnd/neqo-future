@@ -7,24 +7,101 @@
 typedef QFHandle;
 typedef QFHandle* QFConnection;
 typedef QFHandle* QFStream;
+typedef QFHandle* QFConfig;
 
 extern 'C' {
-    bool qf_init(const char* dir);
-    QFConnection qf_connect(const char* conn_addr);
+    // ------------------------------
+    // UTILITIES
+    // ------------------------------
+    bool qf_init(const char* dir = nullptr);
 
+    // formats last error if possible
+    // if there is no enough space for formatted string, returns size of buffer that needed.
+    // you'll need to reallocate with it.
     size_t qf_format_last_error(char* buf, size_t len);
+
+    // ------------------------------
+    // CONFIG HELPERS
+    // ------------------------------
+    QFConfig qf_create_client_config(const char* bind_addr, const char* conn_addr);
+    QFConfig qf_create_server_config(const char* bind_addr);
+    void qf_free_client_config(QFConfig config);
+    void qf_free_server_config(QFConfig config);
+
+    // client configuration helpers.
+    void qf_set_server_name(QFConfig config, const char* sni);
+    void qf_add_cert(QFConfig config, const char* cert);
+    void qf_add_alpn(QFConfig config, const char* alpn);
+    
+
+    // ------------------------------
+    // CONNECTION HELPERS
+    // ------------------------------
+    QFConnection qf_connect(QFConfig config);
+
 
     QFStream qf_stream_listen(QFConnection connection);
     QFStream qf_stream_create_half(QFConnection connection);
     QFStream qf_stream_create_full(QFConnection connection);
 
-    int64_t qf_stream_send(QFStream stream, const char* buf, int64_t len);
-    int64_t qf_stream_send_exact(QFStream stream, const char* buf, int64_t len);
-    int64_t qf_stream_recv(QFStream stream, const char* buf, int64_t len);
-    int64_t qf_stream_recv_exact(QFStream stream, const char* buf, int64_t len);
+    int64_t qf_stream_send(QFStream stream, char* buf, int64_t len);
+    int64_t qf_stream_send_exact(QFStream stream, char* buf, int64_t len);
+    int64_t qf_stream_recv(QFStream stream, char* buf, int64_t len);
+    int64_t qf_stream_recv_exact(QFStream stream, char* buf, int64_t len);
 
     bool qf_stream_close(QFStream stream);
     bool qf_stream_reset(QFStream stream, uint64_t err);
 }
+
+
+class QuicStream {
+    friend class QuicClient;
+    QFStream stream = 0;
+
+protected:
+    explicit QuicStream(QFStream stream_id) : stream(stream_id) { }
+
+public:
+    int64_t send(char* buf, int64_t len) {
+        return qf_stream_send(stream, buf, len);
+    }
+
+    int64_t send_exact(char* buf, int64_t len) {
+        return qf_stream_send_exact(stream, buf, len);
+    }
+
+    int64_t recv(char* buf, int64_t len) {
+        return qf_stream_recv(buf, len);
+    }
+
+    int64_t recv_exact(char* buf, int64_t len) {
+        return qf_stream_recv_exact(buf, len);
+    }
+
+    bool close() {
+        return qf_stream_close(stream);
+    }
+
+    bool reset(uint64_t err = 0) {
+        return qf_stream_reset(err);
+    }
+}
+
+class QuicClient {
+    QFConnection connection;
+
+public:
+
+
+    QuicStream stream_create_full() {
+        return QuicStream(qf_stream_create_full(connection));
+    }
+
+    QuicStream stream_create_half() {
+        return QuicStream(qf_stream_create_half(connection));
+    }
+}
+
+
 
 #endif

@@ -9,8 +9,8 @@ pub struct ClientConfig {
 
     pub server_name: String,
 
-    pub certs: Vec<&'static str>,
-    pub alpns: Vec<&'static str>,
+    pub certs: Vec<String>,
+    pub alpns: Vec<String>,
 
     pub version: Version,
 }

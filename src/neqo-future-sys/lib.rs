@@ -6,7 +6,6 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::thread::LocalKey;
 
 use async_std::task;
-use async_std::task::JoinHandle;
 
 use futures::{AsyncReadExt, AsyncWriteExt};
 use libc::c_char;
@@ -64,6 +63,47 @@ pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize
 
     return 0;
 }
+
+// ------------------------------
+// CONFIG HELPERS
+// ------------------------------
+pub unsafe extern "C" fn qf_create_client_config(bind_addr: *const c_char) -> Option<Box<client::ClientConfig>> {
+    let bind_addr = to_string(bind_addr);
+
+    return match catch_unwind(|| {
+        Box::new(client::ClientConfig {
+            bind_addr: bind_addr.parse().unwrap(),
+            max_stream_range: 1000,
+            send_buf_len: 1360,
+            recv_buf_len: 1360,
+            server_name: "".to_string(),
+            certs: Vec::new(),
+            alpns: Vec::new(),
+            version: Version::Draft29
+        })
+    }) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            qf_set_error(QuicError::FatalError(e));
+            return None;
+        }
+    };
+}
+
+pub unsafe extern "C" fn qf_set_server_name(config: &mut client::ClientConfig, sni: *const c_char) {
+    config.server_name = to_string(sni);
+}
+
+pub unsafe extern "C" fn qf_add_cert(config: &mut client::ClientConfig, cert: *const c_char) {
+    config.certs.push(to_string(cert));
+}
+
+pub unsafe extern "C" fn qf_add_alpn(config: &mut client::ClientConfig, alpn: *const c_char) {
+    config.alpns.push(to_string(alpn));
+}
+
+pub extern "C" fn qf_free_client_config(_: Option<Box<client::ClientConfig>>) { }
+pub extern "C" fn qf_free_server_config(_: Option<Box<server::ServerConfig>>) { }
 
 // ------------------------------
 // CRYPTO HELPERS

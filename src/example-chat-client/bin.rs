@@ -19,8 +19,8 @@ fn main() {
 
     neqo_crypto::init_db("/Users/jujunryoung/Desktop/neqo-future/assets/");
 
-    let alpns = ["neqo-future"].to_vec();
-    let certs = ["NeqoFutureCert"].to_vec();
+    let alpns = ["neqo-future".to_string()].to_vec();
+    let certs = ["NeqoFutureCert".to_string()].to_vec();
 
     let config = client::ClientConfig {
         bind_addr: "0.0.0.0:0".parse().unwrap(),
