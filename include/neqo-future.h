@@ -111,6 +111,9 @@ class QuicClientConfig {
 
 public:
     QuicClientConfig(const char* bind_addr) : config(qf_create_client_config(bind_addr)) { }
+    ~QuicClientConfig() {
+        qf_free_client_config(config);
+    }
 
     void set_server_name(const char* sni) {
         qf_set_server_name(config, sni);
