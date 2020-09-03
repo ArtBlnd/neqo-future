@@ -4,12 +4,12 @@
 #include <cstdint>
 #include <cstddef>
 
-typedef QFHandle;
+typedef void* QFHandle;
 typedef QFHandle* QFConnection;
 typedef QFHandle* QFStream;
 typedef QFHandle* QFConfig;
 
-extern 'C' {
+extern "C" {
     // ------------------------------
     // UTILITIES
     // ------------------------------
@@ -73,11 +73,11 @@ public:
     }
 
     int64_t recv(char* buf, int64_t len) {
-        return qf_stream_recv(buf, len);
+        return qf_stream_recv(stream, buf, len);
     }
 
     int64_t recv_exact(char* buf, int64_t len) {
-        return qf_stream_recv_exact(buf, len);
+        return qf_stream_recv_exact(stream, buf, len);
     }
 
     bool close() {
@@ -85,12 +85,12 @@ public:
     }
 
     bool reset(uint64_t err = 0) {
-        return qf_stream_reset(err);
+        return qf_stream_reset(stream, err);
     }
 };
 
 class QuicClient {
-    friend class QuicClientconfig;
+    friend class QuicClientConfig;
     QFConnection connection;
 
 protected:
@@ -107,7 +107,7 @@ public:
 };
 
 class QuicClientConfig {
-    QFConfig config = 0;
+    QFConfig config;
 
 public:
     QuicClientConfig(const char* bind_addr) : config(qf_create_client_config(bind_addr)) { }
