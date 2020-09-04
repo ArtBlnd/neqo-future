@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstddef>
+#include <memory>
 
 typedef void* QFHandle;
 typedef QFHandle* QFConnection;
@@ -97,12 +98,12 @@ protected:
     explicit QuicClient(QFConnection conn) : connection(conn) { }
 
 public:
-    QuicStream stream_create_full() {
-        return QuicStream(qf_stream_create_full(connection));
+    std::unique_ptr<QuicStream> stream_create_full() {
+        return std::make_unique(new QuicStream(qf_stream_create_full(connection)));
     }
 
-    QuicStream stream_create_half() {
-        return QuicStream(qf_stream_create_half(connection));
+    std::unique_ptr<QuicStream> stream_create_half() {
+        return std::make_unique(new QuicStream(qf_stream_create_half(connection)));
     }
 };
 
@@ -127,8 +128,8 @@ public:
         qf_add_alpn(config, alpn);
     }
 
-    QuicClient connect(const char* conn_addr) {
-        return QuicClient(qf_connect(config));
+    std::unique_ptr<QuicClient> connect(const char* conn_addr) {
+        return std::make_unique(new QuicClient(qf_connect(config)));
     }
 };
 
