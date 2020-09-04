@@ -50,6 +50,7 @@ unsafe fn qf_set_error(error: QuicError) {
     });
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize {
     let mut result = String::new();
     qf_last_error().with(|e| result = format!("error = {:?}", e));
@@ -67,6 +68,7 @@ pub unsafe extern "C" fn qf_format_last_error(buf: *mut u8, len: usize) -> usize
 // ------------------------------
 // CONFIG HELPERS
 // ------------------------------
+#[no_mangle]
 pub unsafe extern "C" fn qf_create_client_config(bind_addr: *const c_char) -> Option<Box<client::ClientConfig>> {
     let bind_addr = to_string(bind_addr);
 
@@ -90,19 +92,25 @@ pub unsafe extern "C" fn qf_create_client_config(bind_addr: *const c_char) -> Op
     };
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn qf_set_server_name(config: &mut client::ClientConfig, sni: *const c_char) {
     config.server_name = to_string(sni);
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn qf_add_cert(config: &mut client::ClientConfig, cert: *const c_char) {
     config.certs.push(to_string(cert));
 }
 
+#[no_mangle]
 pub unsafe extern "C" fn qf_add_alpn(config: &mut client::ClientConfig, alpn: *const c_char) {
     config.alpns.push(to_string(alpn));
 }
 
+#[no_mangle]
 pub extern "C" fn qf_free_client_config(_: Option<Box<client::ClientConfig>>) { }
+
+#[no_mangle]
 pub extern "C" fn qf_free_server_config(_: Option<Box<server::ServerConfig>>) { }
 
 // ------------------------------
